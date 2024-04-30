@@ -1,11 +1,14 @@
-import configparser
 import itertools
+import numpy as np
+import configparser
+
 
 def load_config():
-    """Load and return the configuration from a .ini file."""
+    """Load configuration settings from a .ini file."""
     config = configparser.ConfigParser()
     config.read('config.ini')
     return config
+
 
 def read_fasta(file_path):
     """Reads sequences from a FASTA file and returns a dictionary mapping sequence IDs to sequences."""
@@ -22,6 +25,7 @@ def read_fasta(file_path):
                     sequences[sequence_id] = ''.join(sequence_data)
                 sequence_id = line[1:].strip()
                 sequence_data = []
+
             else:
                 sequence_data.append(line)
 
@@ -30,123 +34,143 @@ def read_fasta(file_path):
 
     return sequences
 
+
 def score(a, b, match, mismatch):
-    """Returns a score based on whether a and b match or not."""
+    """Returns a score based on whether characters 'a' and 'b' match."""
     return match if a == b else mismatch
 
-def initialize_nd_matrix(dimensions, init_val):
-    """Recursively initializes an N-dimensional matrix."""
-    if len(dimensions) == 1:
-        return [init_val for _ in range(dimensions[0])]
-    return [initialize_nd_matrix(dimensions[1:], init_val) for _ in range(dimensions[0])]
+def initialize_matrix(rows, cols, init_val):
+    """Initializes a 2D matrix with specified rows, cols, and initial value."""
+    return np.full((rows, cols), init_val)
 
-def needleman_wunsch(sequences, match, mismatch, indel):
-    """Performs global alignment using Needleman-Wunsch algorithm on multiple sequences."""
-    seq_ids = list(sequences.keys())
-    seq_data = [sequences[id] for id in seq_ids]
-    num_sequences = len(seq_data)
+def pairwise_needleman_wunsch(seq1, seq2, match, mismatch, indel):
+    """Performs pairwise alignment using Needleman-Wunsch"""
+    rows = len(seq1) + 1
+    cols = len(seq2) + 1
 
-    lengths = [len(seq) + 1 for seq in seq_data]
-    matrix = initialize_nd_matrix(lengths, 0)
+    matrix = initialize_matrix(rows, cols, 0)
 
-    # Fill initial gaps
-    for i in range(1, len(seq_data[0]) + 1):
-        matrix[i] = matrix[i - 1] + indel
+    # Fill initial row and column for global alignment
+    for i in range(1, rows):
+        matrix[i, 0] = matrix[i - 1, 0] + indel
+    for j in range(1, cols):
+        matrix[0, j] = matrix[0, j - 1] + indel
 
-    # Fill the remaining matrix
-    for indices in itertools.product(*(range(1, len(seq) + 1) for seq in seq_data)):
-        # Determine possible scores for the current indices
-        pairwise_combinations = list(itertools.combinations(indices, 2))
-        match_score = matrix[tuple(idx - 1 for idx in indices)] + sum(
-            score(seq_data[c[0] - 1][indices[c[0]] - 1], seq_data[c[1] - 1][indices[c[1]] - 1], match, mismatch)
-            for c in pairwise_combinations
-        )
-        ins_scores = [matrix[tuple(indices[:i] + (indices[i] - 1,) + indices[i+1:])] + indel for i in range(num_sequences)]
-        matrix[indices] = max([match_score] + ins_scores)
+    # Fill remaining matrix
+    for i in range(1, rows):
+        for j in range(1, cols):
+            match_score = matrix[i-1, j-1] + score(seq1[i-1], seq2[j-1], match, mismatch)
+            del_score = matrix[i-1, j] + indel
+            ins_score = matrix[i, j-1] + indel
+            matrix[i, j] = max([match_score, del_score, ins_score])
 
-    # Backtrack to get alignments
-    alignments = [""] * num_sequences
-    indices = tuple(len(seq) for seq in seq_data)
+    rows, cols = matrix.shape
+    i, j = rows - 1, cols - 1
+    aligned1, aligned2 = "", ""
 
-    while all(i > 0 for i in indices):
-        pairwise_combinations = list(itertools.combinations(indices, 2))
-        match_score = matrix[tuple(idx - 1 for idx in indices)] + sum(
-            score(seq_data[c[0] - 1][indices[c[0]] - 1], seq_data[c[1] - 1][indices[c[1]] - 1], match, mismatch)
-            for c in pairwise_combinations
-        )
+    while i > 0 or j > 0:
+        current = matrix[i, j]
+        if i > 0 and j > 0 and current == matrix[i - 1, j - 1] + score(seq1[i - 1], seq2[j - 1], match,
+                                                                                 mismatch):
+            aligned1 = seq1[i - 1] + aligned1
+            aligned2 = seq2[j - 1] + aligned2
+            i -= 1
+            j -= 1
+        elif i > 0 and current == matrix[i - 1, j] + indel:
+            aligned1 = seq1[i - 1] + aligned1
+            aligned2 = "-" + aligned2
+            i -= 1
+        elif j > 0 and current == matrix[i, j - 1] + indel:
+            aligned1 = "-" + aligned1
+            aligned2 = seq2[j - 1] + aligned2
+            j -= 1
 
-        ins_scores = [matrix[tuple(indices[:i] + (indices[i] - 1,) + indices[i+1:])] + indel for i in range(num_sequences)]
-        max_score = max([match_score] + ins_scores)
+    return matrix[-1][-1], aligned1, aligned2
 
-        if max_score == match_score:
-            for i in range(num_sequences):
-                alignments[i] = seq_data[i][indices[i] - 1] + alignments[i]
-            indices = tuple(idx - 1 for idx in indices)
-        else:
-            idx = ins_scores.index(max_score)
-            alignments[idx] = "-" + alignments[idx]
-            indices = tuple(indices[:idx] + (indices[idx] - 1,) + indices[idx+1:])
+def pairwise_smith_waterman(seq1, seq2, match, mismatch, indel):
+    """Performs pairwise alignment using Smith Waterman algorithm."""
+    rows = len(seq1) + 1
+    cols = len(seq2) + 1
 
-    # Output the alignment and its score
-    for i in range(num_sequences):
-        print(f"{seq_ids[i]}: {alignments[i]}")
-    print(f"Alignment Score: {matrix[-1]}")
+    # Initialize the score matrix and the traceback matrix
+    score_matrix = initialize_matrix(rows, cols, 0)
+    traceback_matrix = initialize_matrix(rows, cols, None)
 
-def smith_waterman(sequences, match, mismatch, indel):
-    """Performs local alignment using Smith-Waterman algorithm on multiple sequences."""
-    seq_ids = list(sequences.keys())
-    seq_data = [sequences[id] for id in seq_ids]
-    num_sequences = len(seq_data)
+    # Initialize variables to keep track of the maximum score and its position
+    max_score = 0
+    max_position = None
 
-    lengths = [len(seq) + 1 for seq in seq_data]
-    matrix = initialize_nd_matrix(lengths, 0)
+    # Fill the score matrix
+    for i in range(1, rows):
+        for j in range(1, cols):
+            match_score = score_matrix[i-1][j-1] + (match if seq1[i-1] == seq2[j-1] else mismatch)
+            del_score = score_matrix[i-1][j] + indel
+            ins_score = score_matrix[i][j-1] + indel
+            score_matrix[i][j] = max(0, match_score, del_score, ins_score)
 
-    # Fill the remaining matrix
-    for indices in itertools.product(*(range(1, len(seq) + 1) for seq in seq_data)):
-        pairwise_combinations = list(itertools.combinations(indices, 2))
-        match_score = matrix[tuple(idx - 1 for idx in indices)] + sum(
-            score(seq_data[c[0] - 1][indices[c[0]] - 1], seq_data[c[1] - 1][indices[c[1]] - 1], match, mismatch)
-            for c in pairwise_combinations
-        )
-        ins_scores = [matrix[tuple(indices[:i] + (indices[i] - 1,) + indices[i+1:])] + indel for i in range(num_sequences)]
-        matrix[indices] = max([0, match_score] + ins_scores)
+            # Update the traceback matrix to keep track of the direction of the maximum score
+            if score_matrix[i][j] == 0:
+                traceback_matrix[i][j] = None
+            elif score_matrix[i][j] == match_score:
+                traceback_matrix[i][j] = 'diagonal'
+            elif score_matrix[i][j] == del_score:
+                traceback_matrix[i][j] = 'up'
+            else:
+                traceback_matrix[i][j] = 'left'
 
-    # Find the maximum score and its position
-    max_val = 0
-    max_pos = (0, 0)
+            # Update the maximum score and its position
+            if score_matrix[i][j] > max_score:
+                max_score = score_matrix[i][j]
+                max_position = (i, j)
 
-    for indices in itertools.product(*(range(1, len(seq) + 1) for seq in seq_data)):
-        if matrix[indices] > max_val:
-            max_val = matrix[indices]
-            max_pos = indices
+    # Backtrack to find the alignment
+    alignment_seq1 = ''
+    alignment_seq2 = ''
+    i, j = max_position
+    while i > 0 and j > 0 and score_matrix[i][j] > 0:
+        if traceback_matrix[i][j] == 'diagonal':
+            alignment_seq1 = seq1[i-1] + alignment_seq1
+            alignment_seq2 = seq2[j-1] + alignment_seq2
+            i -= 1
+            j -= 1
+        elif traceback_matrix[i][j] == 'up':
+            alignment_seq1 = seq1[i-1] + alignment_seq1
+            alignment_seq2 = '-' + alignment_seq2
+            i -= 1
+        elif traceback_matrix[i][j] == 'left':
+            alignment_seq1 = '-' + alignment_seq1
+            alignment_seq2 = seq2[j-1] + alignment_seq2
+            j -= 1
 
-    # Backtrack to get the alignment
-    indices = max_pos
-    alignments = [""] * num_sequences
+    return max_score, alignment_seq1, alignment_seq2
 
-    while matrix[indices] > 0:
-        pairwise_combinations = list(itertools.combinations(indices, 2))
-        match_score = matrix[tuple(idx - 1 for idx in indices)] + sum(
-            score(seq_data[c[0] - 1][indices[c[0]] - 1], seq_data[c[1] - 1][indices[c[1]] - 1], match, mismatch)
-            for c in pairwise_combinations
-        )
+def get_pairwise_alignments(sequences, match, mismatch, indel):
+    """Generates pairwise alignments and their scores for all sequence pairs."""
+    ids = list(sequences.keys())
+    data = list(sequences.values())
 
-        ins_scores = [matrix[tuple(indices[:i] + (indices[i] - 1,) + indices[i+1:])] + indel for i in range(num_sequences)]
-        max_score = max([match_score] + ins_scores)
+    pairwise_combinations1 = itertools.combinations(range(len(data)), 2)
+    pairwise_combinations2 = itertools.combinations(range(len(data)), 2)
 
-        if max_score == match_score:
-            for i in range(num_sequences):
-                alignments[i] = seq_data[i][indices[i] - 1] + alignments[i]
-            indices = tuple(idx - 1 for idx in indices)
-        else:
-            idx = ins_scores.index(max_score)
-            alignments[idx] = "-" + alignments[idx]
-            indices = tuple(indices[:idx] + (indices[idx] - 1,) + indices[idx+1:])
 
-    # Output the alignment and its score
-    for i in range(num_sequences):
-        print(f"{seq_ids[i]}: {alignments[i]}")
-    print(f"Alignment Score: {matrix[max_pos]}")
+    print("### Needleman Wunsch:")
+    for i, j in pairwise_combinations1:
+        seq1, seq2 = data[i], data[j]
+        max_score, alignment_seq1, alignment_seq2 = pairwise_needleman_wunsch(seq1, seq2, match, mismatch, indel)
+        print(f"Alignment of {ids[i]} vs {ids[j]}:")
+        print(f"{ids[i]}: {alignment_seq1}")
+        print(f"{ids[j]}: {alignment_seq2}")
+        print(f"Score: {max_score}\n")
+
+    print("### Smith Waterman:")
+    for i, j in pairwise_combinations2:
+        seq1, seq2 = data[i], data[j]
+        max_score, alignment_seq1, alignment_seq2 = pairwise_smith_waterman(seq1, seq2, match, mismatch, indel)
+        print(f"Alignment of {ids[i]} vs {ids[j]}:")
+        print(f"{ids[i]}: {alignment_seq1}")
+        print(f"{ids[j]}: {alignment_seq2}")
+        print(f"Score: {max_score}\n")
+
 
 if __name__ == "__main__":
     config = load_config()
@@ -155,7 +179,4 @@ if __name__ == "__main__":
     indel = int(config['Scores']['indel'])
 
     sequences = read_fasta('cs_assignment.fasta')
-    print("Global Alignment:")
-    needleman_wunsch(sequences, match, mismatch, indel)
-    print("\nLocal Alignment:")
-    smith_waterman(sequences, match, mismatch, indel)
+    get_pairwise_alignments(sequences, match=5, mismatch=-2, indel=-4)
