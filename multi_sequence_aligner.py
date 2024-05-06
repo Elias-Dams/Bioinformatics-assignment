@@ -13,20 +13,27 @@ class MultiSequenceAligner:
     def _read_file(self, file_path):
         """Reads sequences from a FASTA file and returns a dictionary mapping sequence IDs to sequences."""
         sequences = {}
+        sequence_id = None
+        sequence_data = []
+
         with open(file_path, 'r') as f:
             for line in f:
                 if line.startswith('>'):
-                    if 'sequence_data' in locals():
+                    if sequence_id is not None:
                         sequences[sequence_id] = ''.join(sequence_data)
+                        sequence_data = []
                     sequence_id = line[1:].strip()
-                    sequence_data = []
                 else:
                     sequence_data.append(line.strip())
-            if 'sequence_data' in locals():
+
+            if sequence_id is not None:
                 sequences[sequence_id] = ''.join(sequence_data)
+
         return sequences
 
-    def _get_previous_neighbours(self, index: tuple[int]) -> list[tuple[int, ...]]:
+    def _get_previous_neighbours(self, index: tuple) -> list[tuple[int, ...]]:
+        """Generates previous neighbours for a given index, considering all combinations of decrementing each index
+        by 0 or 1."""
         num_sequences = len(index)
         offsets = itertools.product([-1, 0], repeat=num_sequences)
         neighbours = [
@@ -36,7 +43,8 @@ class MultiSequenceAligner:
         ]
         return neighbours
 
-    def _get_pairwise_score(self, neighbour: tuple[int, ...], pair: tuple[int, int], sequences: dict, index: tuple[int]) -> int:
+    def _get_pairwise_score(self, neighbour: tuple, pair: tuple, sequences: dict, index: tuple[int]) -> int:
+        """Calculates the pairwise score between two sequences at given indices based on alignment parameters."""
         i, j = pair
         neighbour_i, neighbour_j = neighbour[i], neighbour[j]
         index_i, index_j = index[i], index[j]
@@ -59,9 +67,9 @@ class MultiSequenceAligner:
 
         return score
 
-    def _calculate_score_and_direction(self, index: tuple[int], sequences: dict, matrix: np.ndarray, method: str) -> tuple[int, tuple[int] or None]:
-        """Calculates the score and direction for an index in de matrix given the sequences."""
-        # set the initial values of the matrix
+    def _calculate_score_and_direction(self, index: tuple, sequences: dict, score_matrix: np.ndarray, method: str) -> tuple[int, tuple[int] or None]:
+        """Calculates the optimal score and the previous cell to move from for a given matrix index."""
+        # Initialise the top left as 0
         if all(i == 0 for i in index):
             return 0, None
 
@@ -72,7 +80,7 @@ class MultiSequenceAligner:
         # Calculate scores for all previous neighbouring cells
         scores = {}
         for neighbour in self._get_previous_neighbours(index):
-            total_score = matrix[neighbour]
+            total_score = score_matrix[neighbour]
             total_score += sum(self._get_pairwise_score(neighbour, pair, sequences, index) for pair in pairs)
             scores[total_score] = neighbour
 
@@ -85,12 +93,14 @@ class MultiSequenceAligner:
         else:
             raise ValueError(f"Method must be either 'global' or 'local'. Not '{method}'")
 
-    def _get_current_position(self, sequences, method, score_matrix):
+    def _get_current_position(self, sequences: dict, method: str, score_matrix: np.ndarray) -> tuple[int, ...]:
+        """Determines the current position in the matrix to start the traceback, based on the alignment method."""
         if method == "local":
             return np.unravel_index(np.argmax(score_matrix), score_matrix.shape)
         return tuple(len(seq) for seq in sequences.values())
 
-    def _update_sequences(self, aligned_sequences, sequences, current_position, previous_neighbour):
+    def _update_sequences(self, aligned_sequences: dict, sequences: dict, current_position: tuple, previous_neighbour: tuple) -> None:
+        """Updates the aligned sequences based on the current and previous positions in the traceback process."""
         for sequence_index, sequences_id in enumerate(sequences):
             if current_position[sequence_index] == previous_neighbour[sequence_index]:
                 aligned_sequences[sequences_id] = "-" + aligned_sequences[sequences_id]
@@ -99,6 +109,8 @@ class MultiSequenceAligner:
                 aligned_sequences[sequences_id] = sequences[sequences_id][char_index] + aligned_sequences[sequences_id]
 
     def _should_break(self, method, previous_neighbour, score_matrix):
+        """Determines whether to break out of the alignment loop based on the alignment method and the matrix
+        position."""
         if method == "global":
             return all(i == 0 for i in previous_neighbour)
         elif method == "local":
@@ -107,12 +119,14 @@ class MultiSequenceAligner:
             raise ValueError(f"Invalid method: {method}")
 
     def _get_alignment(self, sequences: dict, method: str) -> tuple[dict, float]:
+        """Computes the sequence alignment based on the given method, returning the aligned sequences and the total
+        score."""
         matrix_dimensions = [len(sequences[id]) + 1 for id in sequences]
         score_matrix = np.zeros(matrix_dimensions)
 
         prev_cell_dict = {}
 
-        # Populate the matrices with scores.
+        # Populate the matrix with scores.
         # Get all possible indices
         all_indices = list(np.ndindex(score_matrix.shape))
         # Sort indices based on the sum of their elements, so they are sorted diagonally.
@@ -122,6 +136,7 @@ class MultiSequenceAligner:
             score_matrix[index] = calculated_score
             prev_cell_dict[index] = chosen_direction
 
+        # Backtrack the matrices
         aligned_sequences = {key: "" for key in sequences}
         current_position = self._get_current_position(sequences, method, score_matrix)
         total_score = float(score_matrix[current_position])
@@ -137,7 +152,8 @@ class MultiSequenceAligner:
 
         return aligned_sequences, total_score
 
-    def align_sequence(self, input_file, method="global"):
+    def align_sequence(self, input_file: str, method: str = "global") -> None:
+        """Reads sequences from a file and performs alignment using the specified method, then outputs the results."""
         sequences = self._read_file(input_file)
 
         aligned_sequences, score = self._get_alignment(sequences, method=method)
