@@ -30,9 +30,12 @@ class MultiSequenceAligner:
 
     def _get_previous_neighbours(self, index: tuple[int]) -> list[tuple[int, ...]]:
         num_sequences = len(index)
-        # Generate potential offset combinations without the all-zero case
         offsets = itertools.product([-1, 0], repeat=num_sequences)
-        neighbours = [tuple(map(sum, zip(index, offset))) for offset in offsets if any(offset)]
+        neighbours = [
+            neighbour
+            for neighbour in (tuple(map(sum, zip(index, offset))) for offset in offsets if any(offset))
+            if all(n >= 0 for n in neighbour)
+        ]
         return neighbours
 
     def _get_pairwise_score(self, neighbour: tuple[int, ...], pair: tuple[int, int], sequences: dict, index: tuple[int]) -> int:
@@ -61,13 +64,8 @@ class MultiSequenceAligner:
     def _calculate_score_and_direction(self, index: tuple[int], sequences: dict, matrix: np.ndarray, method: str) -> tuple[int, tuple[int] or None]:
         """Calculates the score and direction for an index in de matrix given the sequences."""
         # set the initial values of the matrix
-        if any(i == 0 for i in index):
-            if method == "local":
-                return 0, None
-            elif method == "global":
-                return self.indel * max(index), None
-            else:
-                raise ValueError(f"Method must be either 'global' or 'local'. Not '{method}'")
+        if all(i == 0 for i in index):
+            return 0, None
 
         # Get all unique pairs of indices for the given dimension
         dimension = len(sequences)
@@ -106,9 +104,38 @@ class MultiSequenceAligner:
             score_matrix[index] = calculated_score
             prev_cell_dict[index] = chosen_direction
 
-        # score_matrix, prev_cell_dict
-        # ....
-        return ["", ""]
+        aligned_sequences = [""] * len(sequences)
+
+        current_position = [len(sequences[id]) for id in sequences]
+        if method == "local":
+            current_position = np.unravel_index(np.argmax(score_matrix), score_matrix.shape)
+
+        while True:
+            previous_neighbour = prev_cell_dict[tuple(current_position)]
+
+            for sequence_idx in range(len(sequences)):
+                if current_position[sequence_idx] == previous_neighbour[sequence_idx]:
+                    aligned_sequences[sequence_idx] = "-" + aligned_sequences[sequence_idx]
+                else:
+                    sequences_id = list(sequences.keys())[sequence_idx]
+                    aligned_sequences[sequence_idx] = sequences[sequences_id][current_position[sequence_idx] - 1] + \
+                                                      aligned_sequences[sequence_idx]
+
+            if method == "global":
+                if all(i == 0 for i in previous_neighbour):
+                    break
+            elif method == "local":
+                if np.all(score_matrix[tuple(previous_neighbour)] == 0):
+                    break
+            else:
+                raise ValueError(f"Invalid method: {method}")
+
+            current_position = previous_neighbour
+
+            # change the floats (e.g. 2.000000) in current_position to ints
+            current_position = [int(i) for i in current_position]
+
+        return aligned_sequences
 
     def align_sequence(self, input_file, method="global"):
         sequences = self._read_file(input_file)
