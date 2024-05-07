@@ -152,16 +152,29 @@ class MultiSequenceAligner:
 
         return aligned_sequences, total_score
 
-    def align_sequence(self, input_file: str, method: str = "global") -> None:
+    def align_sequence(self, input_file: str, method: str = "global", write: bool = False) -> None:
         """Reads sequences from a file and performs alignment using the specified method, then outputs the results."""
         sequences = self._read_file(input_file)
 
         aligned_sequences, score = self._get_alignment(sequences, method=method)
 
+        # Output the aligned sequences and the score to the console
+        output_lines = []
         for key in aligned_sequences:
-            print(f"{key}: {aligned_sequences[key]}")
-        print(f"Score: {score}")
+            line = f"{key}: {aligned_sequences[key]}"
+            print(line)
+            output_lines.append(line)
+        score_line = f"Score: {score}"
+        print(score_line)
+        output_lines.append(score_line)
+
+        # If write is True, write the output to a text file named based on the input file
+        if write:
+            output_file = input_file.replace(".fasta","") + "_output.txt"
+            with open(output_file, 'w') as f:
+                for line in output_lines:
+                    f.write(line + "\n")
 
 
 SequenceAligner = MultiSequenceAligner(match=5, mismatch=-2, indel=-4, two_gaps=0)
-SequenceAligner.align_sequence("cs_assignment.fasta", method="global")
+SequenceAligner.align_sequence("cs_assignment.fasta", method="global", write=True)
