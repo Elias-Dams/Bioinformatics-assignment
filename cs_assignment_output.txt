@@ -1,0 +1,4 @@
+unknown_J_region_1: GYSSASKIIFGSGTRLSIRP
+unknown_J_region_2: NTE-AF---FGQGTRLTVV-
+unknown_J_region_3: NYG-YT---FGSGTRLTVV-
+Score: 45.0
