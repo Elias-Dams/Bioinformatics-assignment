@@ -2,7 +2,7 @@ import numpy as np
 import itertools
 
 
-class MultiSequenceAligner:
+class MultipleSequenceAligner:
 
     def __init__(self, match: int = 5, mismatch: int = -2, indel: int = -4, two_gaps: int = 0):
         self.match = match
@@ -176,5 +176,5 @@ class MultiSequenceAligner:
                     f.write(line + "\n")
 
 
-SequenceAligner = MultiSequenceAligner(match=5, mismatch=-2, indel=-4, two_gaps=0)
+SequenceAligner = MultipleSequenceAligner(match=5, mismatch=-2, indel=-4, two_gaps=0)
 SequenceAligner.align_sequence("cs_assignment.fasta", method="global", write=True)
