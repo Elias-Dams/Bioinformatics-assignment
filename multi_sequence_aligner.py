@@ -47,14 +47,14 @@ class MultipleSequenceAligner:
         """Calculates the pairwise score between two sequences at given indices based on alignment parameters."""
         i, j = pair
         neighbour_i, neighbour_j = neighbour[i], neighbour[j]
-        index_i, index_j = index[i], index[j]
-        diff_i, diff_j = index_i - neighbour_i, index_j - neighbour_j
+        current_i, current_j = index[i], index[j]
+        diff_i, diff_j = current_i - neighbour_i, current_j - neighbour_j
         id_i, id_j = list(sequences.keys())[i], list(sequences.keys())[j]
 
         # handle the 4 cases of pairwise alignment
         if diff_i == 1 and diff_j == 1:
-            aa_i = sequences[id_i][index_i - 1]
-            aa_j = sequences[id_j][index_j - 1]
+            aa_i = sequences[id_i][current_i - 1]
+            aa_j = sequences[id_j][current_j - 1]
             score = self.match if aa_i == aa_j else self.mismatch
         elif diff_i == 1 and diff_j == 0:
             score = self.indel
