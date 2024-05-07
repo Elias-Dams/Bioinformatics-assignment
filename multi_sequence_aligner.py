@@ -63,7 +63,7 @@ class MultipleSequenceAligner:
         elif diff_i == 0 and diff_j == 0:
             score = self.two_gaps
         else:
-            raise ValueError(f"Invalid offset: {diff_i}, {diff_j}")
+            raise ValueError(f"Invalid offset: ({diff_i}, {diff_j})")
 
         return score
 
@@ -108,7 +108,7 @@ class MultipleSequenceAligner:
                 char_index = current_position[sequence_index] - 1
                 aligned_sequences[sequences_id] = sequences[sequences_id][char_index] + aligned_sequences[sequences_id]
 
-    def _should_break(self, method, previous_neighbour, score_matrix):
+    def _should_break(self, method: str, previous_neighbour: tuple, score_matrix: np.ndarray) -> bool:
         """Determines whether to break out of the alignment loop based on the alignment method and the matrix
         position."""
         if method == "global":
